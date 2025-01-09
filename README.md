@@ -6,7 +6,6 @@ Phisher Buff is an advanced email enumeration tool designed for penetration test
 - **Pattern Recognition** optimizes enumeration by identifying common email patterns
 - **Multi-threaded execution** for faster enumeration
 - **SOCKS5 proxy support** with automatic rotation from a provided proxy list
-- **Smart enumeration**: stops checking name variations once a valid email is found
 - **Customizable input files** for name lists and proxy lists
 - **Output file** with valid emails found during the enumeration
 
