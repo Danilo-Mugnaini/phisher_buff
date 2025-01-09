@@ -3,6 +3,7 @@
 Phisher Buff is an advanced email enumeration tool designed for penetration testers and cybersecurity researchers. It automates the process of verifying email addresses against a target domain using SOCKS5 proxies for anonymity.
 
 ## Features
+- **Pattern Recognition** optimizes enumeration by identifying common email patterns
 - **Multi-threaded execution** for faster enumeration
 - **SOCKS5 proxy support** with automatic rotation from a provided proxy list
 - **Smart enumeration**: stops checking name variations once a valid email is found
@@ -14,7 +15,7 @@ Phisher Buff is an advanced email enumeration tool designed for penetration test
 Ensure you have the following dependencies installed:
 
 ```bash
-pip install PySocks dnspython
+pip install requirements.txt
 ```
 
 ### Cloning the Repository
@@ -27,7 +28,7 @@ cd phisher_buff
 Run the script with the following command:
 
 ```bash
-python3 script.py
+python3 phisher_buff.py
 ```
 
 ### Required Inputs
@@ -39,7 +40,7 @@ Upon execution, the script prompts for:
 
 ### Example Execution
 ```bash
-$ python3 script.py
+$ python3 phisher_buff.py
 Path to names file: names.txt
 Target email domain: example.com
 Known full name (or press Enter to skip): John Doe
