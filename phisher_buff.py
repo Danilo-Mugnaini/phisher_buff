@@ -6,7 +6,7 @@ from collections import defaultdict
 import os
 
 def prompt_user():
-    print("\nPhisher Buff! by 99tea\n")
+    print("\nPhisher Buff! [by 99tea]\n")
     
     # Path to names file (default to names.txt)
     file_path = input("\nEnter path to names file: ")
