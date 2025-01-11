@@ -1,6 +1,7 @@
 import smtplib, socks, dns.resolver, threading, os, itertools
 from collections import defaultdict
 
+# DISCLAIMER: This script is for ethical use only. The author holds no responsibility for misuse.
 def read_file(path): return [line.strip() for line in open(path, 'r', encoding='utf-8') if line.strip()] if os.path.exists(path) else []
 
 def get_mx(domain):
@@ -15,26 +16,36 @@ def validate(email, mx, results, proxy):
         code, _ = s.rcpt(email); s.quit(); results[email] = (code == 250, "Valid" if code == 250 else "Invalid")
     except Exception as e: results[email] = (False, str(e))
 
-def generate_patterns(max_depth=3):
-    p = ["{first}", "{last}", "{middle}", "{first_initial}", "{last_initial}", "{middle_initials}"]
-    return ["".join(i) + "@{domain}" for d in range(1, max_depth + 1) for i in itertools.permutations(p, d) for _ in ["", ".", "_", "-"]]
+def generate_patterns(level):
+    easy = [
+        "{first}@{domain}", "{first}.{last}@{domain}", "{first_initial}{last}@{domain}",
+        "{first}{last}@{domain}", "{first}-{last}@{domain}"
+    ]
+    medium = easy + [
+        "{last}.{first}@{domain}", "{first_initial}.{last}@{domain}", "{first}{last_initial}@{domain}",
+        "{first}.{middle}.{last}@{domain}", "{first_initial}{middle_initial}{last}@{domain}"
+    ]
+    hard = medium + [
+        "{first}{middle}{last}@{domain}", "{first}-{middle}-{last}@{domain}", "{last}{first_initial}@{domain}",
+        "{first}{middle_initial}{last}@{domain}", "{first}.{middle_initial}.{last}@{domain}"
+    ]
+    return easy if level == 1 else medium if level == 2 else hard
 
 def generate_emails(names, patterns, domain):
-    emails = []
+    emails = set()
     for name in names:
         parts = name.lower().split()
+        if len(parts) < 2: continue  # Ensure at least first and last name exist
         ph = {
             "first": parts[0], "last": parts[-1], "first_initial": parts[0][0], "last_initial": parts[-1][0],
-            "middle": ".".join(parts[1:-1]), "middle_initials": ".".join([m[0] for m in parts[1:-1]]), "domain": domain
+            "middle": "".join(parts[1:-1]), "middle_initial": "".join(p[0] for p in parts[1:-1]), "domain": domain
         }
-        try:
-            emails += [p.format(**ph) for p in patterns]
-        except KeyError as e:
-            raise ValueError(f"Invalid placeholder '{e.args[0]}' in pattern.") from e
-    return list(set(emails))
+        emails.update([p.format(**ph) for p in patterns if "{middle}" not in p or ph["middle"]])
+    return list(emails)
 
 def menu():
     print("""
+\n# DISCLAIMER: This script is for ethical use only. The author holds no responsibility for misuse.\n
 Phisher Buff [by 99tea]
 1. Generate Email Addresses
 2. Validate Email Addresses
@@ -52,7 +63,7 @@ def main():
                 print("File not found.")
                 continue
 
-            names = [line.strip() for line in open(names_file, encoding="utf-8") if line.strip()]
+            names = read_file(names_file)
             if not names:
                 print("File is empty.")
                 continue
@@ -64,14 +75,16 @@ def main():
 
             complexity = input("1: Easy\n2: Medium\n3: Hard\n0: Custom\nChoose complexity: ").strip()
             if complexity in "123":
-                patterns = generate_patterns(max_depth=int(complexity) + 1)
+                patterns = generate_patterns(int(complexity))
             else:
-                print("Supported placeholders: {first}, {last}, {middle}, {first_initial}, {last_initial}, {middle_initials}, {domain}")
+                print("Supported placeholders: {first}, {last}, {middle}, {first_initial}, {last_initial}, {domain}")
                 patterns = [input("Custom pattern: ").strip()]
 
             try:
                 output = "generated_emails.txt"
-                open(output, "w", encoding="utf-8").write("\n".join(generate_emails(names, patterns, domain)))
+                mode = "a" if os.path.exists(output) else "w"
+                with open(output, mode, encoding="utf-8") as f:
+                    f.write("\n".join(generate_emails(names, patterns, domain)) + "\n")
                 print(f"Emails saved to {output}.")
             except ValueError as e:
                 print(e)
@@ -88,7 +101,7 @@ def main():
 
             results, threads, proxy_idx = defaultdict(tuple), [], 0
             for email in emails:
-                mx = get_mx(email.split("@")[-1])
+                mx = get_mx(email.split("@")[1])
                 proxy = proxies[proxy_idx] if proxies else None
                 threads.append(threading.Thread(target=validate, args=(email, mx, results, proxy)))
                 threads[-1].start()
@@ -97,7 +110,10 @@ def main():
             [t.join() for t in threads]
             valid_emails = [email for email, (valid, _) in results.items() if valid]
             print("\n".join([f"[✔] {email}" if valid else f"[✖] {email} ({resp})" for email, (valid, resp) in results.items()]))
-            open("valid_emails.txt", "w", encoding="utf-8").writelines(e + "\n" for e in valid_emails)
+            output = "valid_emails.txt"
+            mode = "a" if os.path.exists(output) else "w"
+            with open(output, mode, encoding="utf-8") as f:
+                f.writelines(e + "\n" for e in valid_emails)
 
         elif choice == "3":
             print("Exiting Phisher Buff. Goodbye!")
