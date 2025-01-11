@@ -1,3 +1,6 @@
+# DISCLAIMER: This script is for ethical use only. The author holds no responsibility for misuse.
+
+
 # Phisher Buff
 
 **Phisher Buff** is an advanced email enumeration tool designed for penetration testers and cybersecurity researchers. It automates the process of verifying email addresses against a target domain using SOCKS5 proxies for anonymity.
