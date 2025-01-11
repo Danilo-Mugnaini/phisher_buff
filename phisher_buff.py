@@ -1,157 +1,109 @@
-import smtplib
-import socks
-import dns.resolver
-import threading
+import smtplib, socks, dns.resolver, threading, os, itertools
 from collections import defaultdict
-import os
 
-def prompt_user():
-    print("\nPhisher Buff! [by 99tea]\n")
-    
-    # Path to names file (default to names.txt)
-    file_path = input("\nEnter path to names file: ")
-    if not os.path.exists(file_path):
-        print(f"Error: File '{file_path}' not found. Please check the path.")
-        exit(1)
+def read_file(path): return [line.strip() for line in open(path, 'r', encoding='utf-8') if line.strip()] if os.path.exists(path) else []
 
-    # Target email domain
-    domain = input("\nEnter target email domain (e.g., company.com): ").strip()
-    if not domain:
-        print("Error: You must provide a domain.")
-        exit(1)
+def get_mx(domain):
+    try: return str(dns.resolver.resolve(domain, 'MX')[0].exchange)
+    except: return None
 
-    # Known full name (optional)
-    known_name = input("\nEnter a known full name (or press Enter to skip): ").strip()
-
-    # Corresponding known email (optional)
-    known_email = input("\nEnter the corresponding known email (or press Enter to skip): ").strip()
-
-    # Proxy list file (optional)
-    proxy_list_path = input("\nEnter path to proxylist file (or press Enter to skip): ").strip()
-
-    return file_path, domain, known_name, known_email, proxy_list_path
-
-def read_names(file_path):
-    with open(file_path, "r") as file:
-        return [line.strip() for line in file]
-
-def detect_pattern(full_name, email, domain):
-    """Extracts and learns email pattern from a given known email."""
-    if not email:
-        return None
-    
-    name_parts = full_name.lower().split()
-    email_prefix = email.split("@")[0]
-    
-    patterns = []
-    
-    if email_prefix == f"{name_parts[0][0]}{name_parts[-1]}":
-        patterns.append("{first_initial}{last}")
-    if email_prefix == f"{name_parts[0]}.{name_parts[-1]}":
-        patterns.append("{first}.{last}")
-    if email_prefix == f"{name_parts[0]}{name_parts[-1]}":
-        patterns.append("{first}{last}")
-    
-    return patterns[0] if patterns else None
-
-def generate_emails(full_name, domain, learned_pattern):
-    name_parts = full_name.lower().split()
-    first, last = name_parts[0], name_parts[-1]
-    first_initial = first[0]
-    
-    email_variations = []
-    
-    if learned_pattern:
-        email_variations.append(learned_pattern.format(first=first, last=last, first_initial=first_initial) + "@" + domain)
-    
-    email_variations.extend([
-        f"{first}.{last}@{domain}",
-        f"{first}{last}@{domain}",
-        f"{first_initial}{last}@{domain}",
-        f"{first}{last[0]}@{domain}",
-        f"{first_initial}.{last}@{domain}",
-        f"{first}_{last}@{domain}",
-        f"{last}.{first}@{domain}"
-    ])
-    
-    return email_variations
-
-def get_mx_record(domain):
-    """Finds the MX record for a given domain."""
+def validate(email, mx, results, proxy):
+    if not mx: results[email] = (False, "No MX"); return
     try:
-        records = dns.resolver.resolve(domain, 'MX')
-        return str(records[0].exchange)
-    except Exception as e:
-        print(f"Error finding MX record for {domain}: {e}")
-        return None
+        if proxy: socks.setdefaultproxy(socks.SOCKS5, proxy[0], int(proxy[1])); socks.wrapmodule(smtplib)
+        s = smtplib.SMTP(mx, 25, timeout=10); s.helo(); s.mail("test@example.com")
+        code, _ = s.rcpt(email); s.quit(); results[email] = (code == 250, "Valid" if code == 250 else "Invalid")
+    except Exception as e: results[email] = (False, str(e))
 
-def validate_email(email, mx_server, results, proxy_host=None, proxy_port=None):
-    """Checks if an email address is valid using SMTP RCPT TO through a SOCKS5 proxy if provided."""
-    if not mx_server:
-        results[email] = (False, "No MX record found")
-        return
-    
-    try:
-        if proxy_host and proxy_port:
-            socks.setdefaultproxy(socks.SOCKS5, proxy_host, proxy_port)
-            socks.wrapmodule(smtplib)
-        
-        server = smtplib.SMTP(mx_server, 25, timeout=10)
-        server.helo()
-        server.mail("me@example.com")  # Fake sender email
-        code, message = server.rcpt(email)
-        server.quit()
-        results[email] = (code == 250, message.decode())
-    except Exception as e:
-        results[email] = (False, str(e))
+def generate_patterns(max_depth=3):
+    p = ["{first}", "{last}", "{middle}", "{first_initial}", "{last_initial}", "{middle_initials}"]
+    return ["".join(i) + "@{domain}" for d in range(1, max_depth + 1) for i in itertools.permutations(p, d) for _ in ["", ".", "_", "-"]]
+
+def generate_emails(names, patterns, domain):
+    emails = []
+    for name in names:
+        parts = name.lower().split()
+        ph = {
+            "first": parts[0], "last": parts[-1], "first_initial": parts[0][0], "last_initial": parts[-1][0],
+            "middle": ".".join(parts[1:-1]), "middle_initials": ".".join([m[0] for m in parts[1:-1]]), "domain": domain
+        }
+        try:
+            emails += [p.format(**ph) for p in patterns]
+        except KeyError as e:
+            raise ValueError(f"Invalid placeholder '{e.args[0]}' in pattern.") from e
+    return list(set(emails))
+
+def menu():
+    print("""
+Phisher Buff [by 99tea]
+1. Generate Email Addresses
+2. Validate Email Addresses
+3. Exit
+""")
 
 def main():
-    file_path, domain, known_name, known_email, proxy_list_path = prompt_user()
-    names = read_names(file_path)
-    
-    learned_pattern = detect_pattern(known_name, known_email, domain) if known_name and known_email else None
-    
-    mx_server = get_mx_record(domain)
-    valid_emails = []
-    
-    results = defaultdict(tuple)
-    threads = []
-    
-    # Set to track already validated names
-    processed_names = set()
+    while True:
+        menu()
+        choice = input("Select an option: ").strip()
 
-    for name in names:
-        if name in processed_names:  # Skip if we've already found a valid email for this name
-            print(f"[✔] Skipping {name}, already found valid email.")
-            continue
+        if choice == "1":
+            names_file = input("Names file path: ").strip()
+            if not os.path.exists(names_file):
+                print("File not found.")
+                continue
 
-        email_variations = generate_emails(name, domain, learned_pattern)
-        for email in email_variations:
-            thread = threading.Thread(target=validate_email, args=(email, mx_server, results, proxy_list_path))
-            thread.start()
-            threads.append(thread)
-        
-        # After all emails are tested for this name, check if we found a valid one
-        for email in email_variations:
-            if email in results and results[email][0]:
-                processed_names.add(name)  # Mark this name as processed
-                print(f"[✔] Valid Email found for {name}: {email}")
-                break  # No need to check further variations for this name
+            names = [line.strip() for line in open(names_file, encoding="utf-8") if line.strip()]
+            if not names:
+                print("File is empty.")
+                continue
 
-    for thread in threads:
-        thread.join()
-    
-    for email, (valid, response) in results.items():
-        if valid:
-            valid_emails.append(email)
-            print(f"[✔] Valid Email: {email} ✅")
+            domain = input("Domain (e.g., company.com): ").strip()
+            if not domain:
+                print("Invalid domain.")
+                continue
+
+            complexity = input("1: Easy\n2: Medium\n3: Hard\n0: Custom\nChoose complexity: ").strip()
+            if complexity in "123":
+                patterns = generate_patterns(max_depth=int(complexity) + 1)
+            else:
+                print("Supported placeholders: {first}, {last}, {middle}, {first_initial}, {last_initial}, {middle_initials}, {domain}")
+                patterns = [input("Custom pattern: ").strip()]
+
+            try:
+                output = "generated_emails.txt"
+                open(output, "w", encoding="utf-8").write("\n".join(generate_emails(names, patterns, domain)))
+                print(f"Emails saved to {output}.")
+            except ValueError as e:
+                print(e)
+
+        elif choice == "2":
+            file = input("Emails file: ").strip()
+            if not os.path.exists(file):
+                print("File not found.")
+                continue
+
+            proxy_file = input("Proxy file (optional, press Enter to skip): ").strip()
+            emails = read_file(file)
+            proxies = [p.split(":") for p in read_file(proxy_file)] if proxy_file else []
+
+            results, threads, proxy_idx = defaultdict(tuple), [], 0
+            for email in emails:
+                mx = get_mx(email.split("@")[-1])
+                proxy = proxies[proxy_idx] if proxies else None
+                threads.append(threading.Thread(target=validate, args=(email, mx, results, proxy)))
+                threads[-1].start()
+                proxy_idx = (proxy_idx + 1) % len(proxies) if proxies else 0
+
+            [t.join() for t in threads]
+            valid_emails = [email for email, (valid, _) in results.items() if valid]
+            print("\n".join([f"[✔] {email}" if valid else f"[✖] {email} ({resp})" for email, (valid, resp) in results.items()]))
+            open("valid_emails.txt", "w", encoding="utf-8").writelines(e + "\n" for e in valid_emails)
+
+        elif choice == "3":
+            print("Exiting Phisher Buff. Goodbye!")
+            break
+
         else:
-            print(f"[✖] Invalid: {email} ({response})")
-    
-    with open("valid_emails.txt", "w") as f:
-        f.writelines("\n".join(valid_emails))
-    
-    print("[✔] Finished. Valid emails saved in valid_emails.txt")
+            print("Invalid option. Please try again.")
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
